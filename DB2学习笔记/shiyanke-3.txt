@@ -1,0 +1,214 @@
+二综合项目
+实验拓扑
+
+                 client192.168.4.254
+                     |
+               nginx192.168.4.30
+                     |
+        _______________________________
+         |                        |
+       maxscale41主       maxscale42备用
+         |                         |
+         |                         |
+               _______________
+                       |
+                    MHA集群
+                   master51
+                       |
+               __________________
+              |                 |
+           slave52 slave53   slave54    slave55
+              
+1、配置MHA高可用集群
+
+2 配置数据读写分离
+服务器maxscale41 和 maxscale42 主机 做数据读写分离服务器：把数据的写请求给主机vip 192.168.4.100
+读请求给所有的slave主机 (扩展知识 把查询请求平均的分发给所有的从数据库服务器) 
+
+3 配置数据读写分离服务器的高可用集群
+nginx 主机实现的功能是：数据读写分离服务器maxscale41 和 maxscale42 主机的高可用集群
+
+192.168.4.41--------192.168.4.42
+[root@room9pc01 ~]# scp  -r  /root/桌面/mysql-5.7.17.tar root@192.168.4.41:/root/
+
+[root@room9pc01 ~]# scp  -r  /root/桌面/mysql-5.7.17.tar root@192.168.4.42:/root/
+
+tar  -xf  mysql-5.7.17.tar
+yum  -y  install  perl-JSON
+rpm  -Uvh  mysql-community-*.rpm
+rpm  -ivh   maxscale-2.1.2-1.rhel.7.x86_64.rpm
+cp  /etc/maxscale.cnf /etc/maxscale.cnf.bak
+vim /etc/maxscale.cnf
+[server1]
+type=server
+address=192.168.4.100
+port=3306
+protocol=MySQLBackend
+
+[server2]
+type=server
+address=192.168.4.52
+port=3306
+protocol=MySQLBackend
+[server3]
+type=server
+address=192.168.4.53
+port=3306
+protocol=MySQLBackend
+[server4]
+type=server
+address=192.168.4.54
+port=3306
+protocol=MySQLBackend
+[server5]
+type=server
+address=192.168.4.55
+port=3306
+protocol=MySQLBackend
+35[MySQL Monitor] //定义要监视的数据库服务器
+36type=monitor
+37module=mysqlmon
+38servers=server1,server2  //定义的主、从数据库服务器主机名
+39user=scalemon     //用户名(随便设置)
+40passwd=123456   //密码(随便设置)
+41monitor_interval=10000
+52--58注释掉
+ 52 #[Read-Only Service]
+ 53 #type=service
+ 54 #router=readconnroute
+ 55 #servers=server1, server2,server3, server4, server5
+ 56 #user=myuser
+ 57 #passwd=mypwd
+ 58 #router_options=slave
+
+
+64 [Read-Write Service]
+ 65 type=service
+ 66 router=readwritesplit
+ 67 servers=server1, server2,server3, server4, server5
+ 68 user=maxscale  用这个用户连接4.100去验证server1,server2授权库有没有连接的用户
+ 69 passwd=123456
+ 70 max_slave_connections=100%
+定义管理服务不用动
+ 76 [MaxAdmin Service]
+ 77 type=service
+ 78 router=cli
+86-90注释掉
+ 86 #[Read-Only Listener]
+ 87 #type=listener
+ 88 #service=Read-Only Service
+ 89 #protocol=MySQLClient
+ 90 #port=4008
+92--102不用动加一个端口
+ 92 [Read-Write Listener]
+ 93 type=listener
+ 94 service=Read-Write Service
+ 95 protocol=MySQLClient
+ 96 port=4006 读写服务的端口
+ 97 
+ 98 [MaxAdmin Listener]
+ 99 type=listener
+100 service=MaxAdmin Service
+101 protocol=maxscaled
+102 socket=default
+103 port=4009
+
+
+并根据配置文件在主库上添加对应的授权用户
+scalemon
+192.168.4.51集群主库51上
+mysql>  grant replication slave, replication client on *.* to scalemon@'%'  identified by “123456”; //创建监控用户  
+mysql> grant  select on  mysql.*  to  maxscale@"%"  identified  by  "123456";//创建路由用户
+mysql> grant  all  on *.*  to  yaya@"%"  identified  by  "123456";//创建访问数据用户
+
+maxscale  -f /etc/maxscale.cnf
+ps  -C  maxscale
+netstat  -utnlp  |  grep  maxscale
+scp -r  /etc/maxscale.cnf  root@192.168.4.42:/etc/maxscale.cnf
+****************************************************************************
+搭建proxy代理服务器
+[root@room9pc01 ~]# scp  /root/桌面/nginx-1.12.2.tar.gz  root@192.168.4.30:/root/
+tar -xf nginx-1.12.2.tar.gz
+cd nginx-1.12.2/
+./configure   --with-stream
+make &&  make install
+ln  -s /usr/local/nginx/sbin/nginx  /sbin/
+nginx 
+vim /usr/local/nginx/conf/nginx.conf
+stream {
+         upstream  backend  { server 192.168.4.41:4006;
+                              server 192.168.4.42:4006;
+}
+        server
+                  {
+                  listen 12345;
+                  proxy_connect_timeout 10s;
+                  proxy_timeout 10s;
+                  proxy_pass backend; }
+}
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+nginx  -s reload
+
+另开终端测试 连接访问proxy实现分配读写分离
+mysql  -h192.168.4.30  -P12345  -uyaya  -p123456
+mysql> select @@hostname;
+mysql> create database  hahaha;
+mysql> create  table  hahaha.yaya  (id int);
+用4.51root登陆4.51
+[root@host51 ~]# mysql -uroot  -p123456
+mysql> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| haha               |
+| hahaha             |
+| mysql              |
+| performance_schema |
+| sys                |
++--------------------+
+mysql> use hahaha;
+mysql> insert  into hahaha.yaya values (90);
+Query OK, 1 row affected (0.07 sec)
+mysql> insert  into hahaha.yaya values (90);
+Query OK, 1 row affected (0.08 sec)
+另开终端测试 连接访问proxy实现分配读写分离
+mysql  -h192.168.4.30  -P12345  -uyaya  -p123456
+mysql> select  *  from   hahaha.yaya;
++------+
+| id   |
++------+
+|   90 |
+|   90 |
++------+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

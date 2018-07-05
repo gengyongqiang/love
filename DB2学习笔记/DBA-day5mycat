@@ -1,0 +1,211 @@
+                                     DB2-day5 分库分表
+(1)分库分表  作用::: 解决单台服务器的访问压力
+		    解决单表过大的问题
+什么是分库分表
+通过某种特定条件，将存放在一个数据库(主机)中的数据，分散存放到多个数据库(主机)中。
+已达到分散单台设备负载的效果，即分库分表
+数据的切分根据其切分规则的类型，分为2种切分模式
+垂直分割(纵向) 和 水平分割(横向)
+(2)垂直分割
+纵向切分
+把单一的表，拆分成多个表，并分散到不同的数据库(主机)上。
+一个数据库由多个表构成，每个表对应不同的业务，可以按照业务对表进行分类，将其分布到不同的数据库(主机)上，实现专库专用，让不同的库(主机)分担不同的业务。
+(3)水平分割
+横向切分
+按照表中某个字段的某种规则，把向表中写入的记录分散到多个库(主机)中。
+简单来说，就是按照数据行切分，将表中的某些行存储到指定的数据库 (主机) 中。
+(4)软件介绍
+Mycat 是基于Java的分布式数据库系统中间层，为高并发下的分布式提供解决方案 
+支持JDBC形式连接
+支持MySQL、Oracle、Sqlserver、Mongodb等
+提供数据读写分离服务
+可以实现数据库服务器的高可用
+提供数据分片服务
+基于阿里巴巴Cobar进行研发的开源软件
+适合数据大量写入数据的存储需求
+
+分片规则((rule.xml分片规则文件))扩展标记语言
+
+mycat服务提供10种分片规则。
+1枚举法 sharding-by-intfile
+2固定分片hash算法 rule1
+3范围约定 auto-sharding-long
+4求模法 mod-long
+5日期列分区法 sharding-by-date
+6通配取模 sharding-by-pattern
+7ASCII码求模通配  sharding-by-prefixpattern
+8编程指定 sharding-by-substring
+9字符串拆分hash解析 sharding-by-stringhash
+10一致性hash   sharding-by-murmur
+
+
+
+
+
+
+
+
+
+(5)4.56(mycat服务器)上配置数据分片服务器
+先安装JDK
+[root@mycat mysql]# rpm  -qa  |  grep -i JDK
+[root@mycat mysql]# jiva  -version
+装包Mycat-server-1.4-beta-20150604171601-linux.tar.gz
+[root@mycat mysql]#  tar -zxf  Mycat-server-1.4-beta-20150604171601-linux.tar.gz
+[root@mycat mysql]# cd mycat/
+[root@mycat mycat]# cd ..
+[root@mycat conf]# echo   "export   PATH=/usr/local/mycat/bin/"  >> /etc/profile
+[root@mycat mysql]# mv  mycat/  /usr/local/
+[root@mycat mysql]# ls /usr/local/ 
+[root@mycat ~]# cd /usr/local/mycat/conf/
+[root@mycat conf]#   cp schema.xml  schema.xml.bak  备份
+修改配置文件(server.xml和scahema.xml)
+server.xml     设置连接mycat服务的账号 、密码等
+schema.xml      配置mycat使用的真实数据库和表
+rule.xml         定义mycat分片规则
+配置标签说明
+	<user>.......</user>  定义连接mycat服务时使用的用户和密码及逻辑库的名字
+	<datanode>......</datanode> 指定数据节点（物理库的主机名和存储分片数据的数据库名）
+	<datahost>......</datahost> 指定数据库服务器的IP地址 及连接数据库时使用的授权用户名及密码
+[root@mycat conf]# vim  server.xml
+只查看,不用动
+	  <user name="test">
+                <property name="password">test</property>
+                <property name="schemas">TESTDB</property>
+        </user>
+
+        <user name="user">
+                <property name="password">user</property>
+                <property name="schemas">TESTDB</property>
+                <property name="readOnly">true</property>
+        </user>
+
+两台(4.54   4.55)服务器修改配置文件,添加不区分大小写
+vim /etc/my.cnf
+	lower_case_table_names = 1  不区分大小写
+[root@host54 mysql]# systemctl restart mysqld  重起54
+[root@host55 mysql]# systemctl restart mysqld  重起55
+启动服务
+ JDK依赖包如果不是rpm装的需要指定位置
+[root@mycat conf]# vim wrapper.conf  
+[root@mycat mycat]# /usr/local/mycat/bin/mycat  --help
+Usage: /usr/local/mycat/bin/mycat { console | start | stop | restart | status | dump }
+
+例子c1 ==db1库  c2  ==  db2库  c1==192.168.4.54  c2==192.168.4.55
+[root@mycat conf]# vim schema.xml
+5行开始<schema name= **"TESTDB" **  虚拟库名
+7行
+<table name="travelrecord"表名
+dataNode="dn1,dn2,dn3"      数据库服务器名称 
+rule="auto-sharding-long"    分片规则
+11行和12行删除dn3
+11<table name="company" primaryKey="ID" type="global" dataNode="dn1,dn2" />
+12<table name="goods" primaryKey="ID" type="global" dataNode="dn1,dn2" />
+37c1=4.54(创建db1库)   <dataNode name="dn1" dataHost="c1" database="db1" />
+38c2=4.55(创建db2库)   <dataNode name="dn2" dataHost="c2" database="db2" />
+39注释掉(<!--   -->) <!--  <dataNode name="dn3" dataHost="localhost1" database="db3" />  -->
+43改datahost name   <dataHost name="c1" maxCon="1000" minCon="10" balance="0"
+ 44                 writeType="0" dbType="mysql" dbDriver="native" switchType="1"  slaveThreshold="100">
+ 45                 <heartbeat>select user()</heartbeat>
+ 46                 <!-- can have multi write hosts -->
+ 47 改url=对应db1库的服务器IP <writeHost host="hostM1" url="192.168.4.54:3306" user="root"
+ 48 再54服务器上授权连接用户,密码                       password="123456">
+ 49                         <!-- can have multi read hosts -->
+ 50 
+ 51                 </writeHost>
+ 52         <!--    <writeHost host="hostS1" url="localhost:3316" user="root"
+ 53                         password="123456" /> -->
+ 54                 <!-- <writeHost host="hostM2" url="localhost:3316" user="root" password="123456"/> -->
+ 55         </dataHost>
+ 56 (复制13行)YY,P,datahost name
+			 <dataHost name="c2" maxCon="1000" minCon="10" balance="0"
+ 57                 writeType="0" dbType="mysql" dbDriver="native" switchType="1"  slaveThreshold="100">
+ 58                 <heartbeat>select user()</heartbeat>
+ 59                 <!-- can have multi write hosts -->
+ 60改url=对应db2库的服务器IP  <writeHost host="hostM1" url="192.168.4.55:3306" user="root"
+ 61再55服务器上授权连接用户,密码                         password="123456">
+ 62                         <!-- can have multi read hosts -->
+ 63 
+ 64                 </writeHost>
+ 65         <!--    <writeHost host="hostS1" url="localhost:3316" user="root"
+ 66                         password="123456" /> -->
+ 67                 <!-- <writeHost host="hostM2" url="localhost:3316" user="root" password="123456"/> -->
+ 68         </dataHost>
+
+两台(4.54   4.55)服务器分别
+根据schema.cml配置文件第52行创建授权连接用户,密码, 4.54上创建db1库
+根据schema.cml配置文件第60行创建授权连接用户,密码, 4.55上创建db2库
+绝对路径启动mycat服务
+[root@mycat conf]# /usr/local/mycat/bin/mycat   start
+查看8066端口是否起来,证明服务已经开启
+[root@mycat conf]# netstat -utnlp  | grep  :8066
+tcp6       0      0 :::8066         :::*       LISTEN      4409/java      
+
+[root@host53 mysql]# mysql  -h192.168.4.56  -P8066  -utest  -ptest
+
+客户端验证(枚举类型(enum和set)--sharding-by-intfile)
+[root@host56mycat conf]# vim  partition-hash-int.txt
+10000=0
+10010=1
+which  mysql
+客户端[root@host53 mysql]#mysql  -h192.168.4.56  -utest  -ptest 
+mysql> use  TESTDB ;
+mysql> create table employee(
+    -> id  int  not  null  primary  key,
+    -> name varchar  (100),
+    -> age  int(2),
+    -> sharding_id int  not null 
+    -> );
+Query OK, 0 rows affected (0.42 sec)
+mysql> insert  into  employee(id,name,age,sharding_id)values (1,"lisi",34,10000),(2,"yaya",18,10010);
+[root@host54 ~]# mysql  -uroot  -p123456
+mysql> use  db1;
+mysql> select  * from employee;
++----+------+------+-------------+
+| id | name | age  | sharding_id |
++----+------+------+-------------+
+|  1 | lisi |   34 |       10000 |
++----+------+------+-------------+
+[root@host55 ~]# mysql  -uroot  -p123456
+mysql> use  db2;
+mysql> select  * from employee;
++----+------+------+-------------+
+| id | name | age  | sharding_id |
++----+------+------+-------------+
+|  2 | yaya |   18 |       10010 |
++----+------+------+-------------+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

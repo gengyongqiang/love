@@ -1,0 +1,298 @@
+tar -xf mysql-5.7.17.tar  
+yum  -y  install perl-JSON 
+rpm  -Uvh  mysql-community-*.rpm 
+systemctl start  mysqld 
+systemctl status   mysqld 
+systemctl  enable   mysqld 
+grep password /var/log/mysqld.log 
+mysql   -hlocalhost  -uroot -p'
+set global  validate_password_policy=0;
+set global  validate_password_length=6;
+alter  user  root@"localhost"  identified by "123456";
+     quit 
+vim /etc/my.cnf
+validate_password_policy=0
+validate_password_length=6
+systemctl restart  mysqld
+systemctl enable  mysqld 
+systemctl status   mysqld
+
+192.168.4.51主库
+[root@host51 ~]#vim /etc/my.cnf
+	[mysqld]
+	validate_password_policy=0
+	validate_password_length=6
+	server_id=51
+	log-bin=master51
+	binlog-format="mixed"
+	plugin-load=rpl_semi_sync_master=semisync_master.so
+	rpl_semi_sync_master_enabled=1
+[root@host51 mysql]# systemctl restart mysqld
+[root@host51 mysql]# mysql  -uroot -p123456
+	mysql> grant  all  on *.*  to zhangsan@"%"  identified  by  "123456"; 
+	mysql> quit
+测试查看是否同步:::[root@host56 ~]# mysql  -h192.168.4.51  -uzhangsan  -p123456
+			mysql> create database  haha;
+51----55::show  databases;
+mysql> drop database  haha;
+51--------55::show  databases;
+52.53备用主库
+[root@host52 ~]# vim /etc/my.cnf
+	[mysqld]
+	validate_password_policy=0
+	validate_password_length=6
+	server_id=52       *****53****
+	log-bin=slave52    *****53****
+	binlog-format="mixed"
+	plugin-load=rpl_semi_sync_slave=semisync_slave.so
+	rpl_semi_sync_slave_enabled=1
+
+[root@host52 ****55****** ~]# 
+	mysql  -uroot -p123456
+	mysql>change  master  to  master_host="192.168.4.51",主库IP 
+	master_user="repluser",		主库授权的用户
+	master_password="123456",	主库授权的用户的密码
+	master_log_file="master51.000001",主库日志文件名
+	master_log_pos=441;		主库偏移量
+[root@host52 ****55****** ~]52*****55********
+	mysql> start  slave;
+	mysql> show  slave  status\G;
+
+[root@host51***56*** ~]#安装perl包
+	cd mysql/mha-soft-student/
+	yum -y  install  perl-*.rpm
+
+所有主机配置密钥,使用任意一个主机都能无密码远程任意一个主机
+[root@host51**56** ~]# ssh-keygen 生成密钥,一路回车
+[root@host51 ~]# ssh-copy-id 192.168.4.52----56
+验证无密码远程登陆:
+[root@host51 ~]# ssh  192.168.4.52----56
+52---56  同上
+
+51----53:::set
+[root@host51 ~]# mysql  -uroot -p123456主库51上授权用户
+	mysql> grant  replication slave  on  *.*  to repluser@"%"  identified by "123456";
+	mysql> set global relay_log_purge=off;
+[root@host52 ~]#
+	mysql  -uroot -p123456
+ 	mysql> set global relay_log_purge=off;
+[root@host53 ~]#
+	mysql  -uroot -p123456
+ 	mysql> set global relay_log_purge=off;
+
+52----55查看slave线程是否开启
+[root@host52 ~]# mysql -uroot -p123456 -e "show slave status\G" | grep -i yes
+
+
+在主库51上添加访问数据的授权用户
+[root@host51 ~]# mysql  -uroot -p123456
+mysql> grant all on  *.* to lisi@"%" identified by "123456";
+
+测试:::::
+用4.50客户端连接主库4.51  建库表记录
+[root@host50 ~]# 用授权的lisi用户登陆主库建库
+	mysql   -h192.168.4.51  -ulisi  -p123456
+		mysql>  create database  haha;
+		mysql>  quit
+		mysql>  create  table  haha.haha1  (id  int);
+		mysql>  insert into  haha.haha1  values (111);
+		mysql>  insert into  haha.haha1  values (111);
+		mysql>  insert into  haha.haha1  values (111);
+依次用root用户,密码123456登陆51----55查看是否有haha库下的haha1表里的数据?????
+
+51----56每台机器都要有lili用户,访问数据的用户
+	mysql> grant  all  on   *.* to  lili@"%"  identified  by  "123456";
+每台机器都要查看用户是否存在
+	mysql> select   user,host  from  mysql.user;
+
+51-----55安装依赖包perl-DBD-mysql 和 mha4mysql-node-0.56-0.el6.noarch.rpm
+[root@host51 ~]# cd  mysql/mha-soft-student/
+[root@host51 mha-soft-student]# yum  -y  install   perl-DBD-mysql
+[root@host51 mha-soft-student]# rpm  -ivh  mha4mysql-node-0.56-0.el6.noarch.rpm
+
+(3)配置管理主机(192.168.4.56)
+装包
+[root@host56 mha-soft-student]# yum  -y  install   perl-DBD-mysql
+[root@host56 ~]# cd mysql/mha-soft-student/
+[root@host56 mha-soft-student]# yum  -y  install  perl-ExtUtils-*   perl-CPAN-*
+[root@host56 mha-soft-student]# tar  -zxf  mha4mysql-manager-0.56.tar.gz
+ls ls ls ls ls ls ls ls ls
+[root@host56 mha-soft-student]# cd mha4mysql-manager-0.56/
+ls ls ls ls ls ls ls ls ls
+[root@host56 mha-soft-student]# rpm  -ivh  mha4mysql-node-0.56-0.el6.noarch.rpm
+[root@host56 mha4mysql-manager-0.56]# perl  Makefile.PL
+[root@host56 mha4mysql-manager-0.56]# make
+[root@host56 mha4mysql-manager-0.56]# make install
+修改(56)配置文件
+随便创建一个目录,用来指定工作目录
+[root@host56 mha4mysql-manager-0.56]# mkdir  /etc/mha_manager/
+[root@host56 ~]# cd soft/mysql/mha-soft-student/mha4mysql-manager-0.56/samples/conf/
+[root@host56 conf]# cp  app1.cnf  /etc/mha_manager/ 
+[root@host56 conf]# vim  /etc/mha_manager/app1.cnf
+		
+		[server default]
+		manager_workdir=/etc/mha_manager
+		manager_log=/etc/mha_manager/manager.log
+		master_ip_failover_script=/etc/mha_manager/master_ip_failover
+
+		ssh_user=root
+		ssh_port=22
+		repl_user=repluser
+		repl_password=123456
+		user=lili
+		password=123456
+
+		[server1]
+		hostname=192.168.4.51
+		candidate_master=1
+
+		[server2]
+		hostname=192.168.4.52
+		candidate_master=1
+
+		[server3]
+		hostname=192.168.4.53
+		candidate_master=1
+
+		[server4]
+		hostname=192.168.4.54
+		no_master=1
+
+		[server5]
+		hostname=192.168.4.55
+		no_master=1
+
+[root@host56 ~]# cp  mysql/mha-soft-student/master_ip_failover  /etc/mha_manager/
+[root@host56 ~]# chmod +x /etc/mha_manager/master_ip_failover  给脚本加权限
+[root@host56 ~]# vim /etc/mha_manager/master_ip_failover
+	 	35 my $vip = '192.168.4.100/24';  # Virtual IP   改为4.100
+		36 my $key = "1";
+	 	37 my $ssh_start_vip = "/sbin/ifconfig eth0:$key $vip";
+		38 my $ssh_stop_vip = "/sbin/ifconfig eth0:$key down";
+测试配置文件
+[root@host56 ~]# vim /etc/mha_manager/app1.cnf
+注释
+#master_ip_failover_script=/etc/mha_manager/master_ip_failover
+*******************************************************************************
+*测试                                                                                     *
+*[root@host56 ~]# masterha_check_ssh  --conf=/etc/mha_manager/app1.cnf*  
+*      最后显示*****All SSH connection tests passed successfully.全部OK   *
+*******************************************************************************
+测试主从同步
+[root@host56 ~]# masterha_check_repl   --conf=/etc/mha_manager/app1.cnf
+**显示主库从库 ******************************************
+192.168.4.51(192.168.4.51:3306) (current master) * 
+* 	+--192.168.4.52(192.168.4.52:3306)                   *  
+*	+--192.168.4.53(192.168.4.53:3306)                  *
+*	+--192.168.4.54(192.168.4.54:3306)                   *
+*	+--192.168.4.55(192.168.4.55:3306)                   *  
+*	MySQL Replication Health is OK.****        *
+*********************************************************
+*********************************************************************************************
+****************************起服之前先指定命令所在的路径***************************************
+*(先在4.56服务器的命令行输入master按两下Tab键,可以Tab出命令可以省略此步骤)                        *
+*[root@host56 ~]# cd soft/mysql/mha-soft-student/mha4mysql-manager-0.56/ 		 *
+*[root@host56 mha4mysql-manager-0.56]# echo  $PATH					 *
+*/usr/local/mysql/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin *
+*[root@host56 mha4mysql-manager-0.56]# ls /root/bin 					 *
+*		ls: 无法访问/root/bin: 没有那个文件或目录		  		 		  *
+*[root@host56 mha4mysql-manager-0.56]# mkdir /root/bin  				 *
+*[root@host56 mha4mysql-manager-0.56]# cp  bin/*  /root/bin/				 *
+*********************************************************************************************
+在4.56启动服务
+手动部署主库eth:1的VIP地址(配置文件中的192.168.4.100)
+[root@host51 ]# ifconfig eth0:1 192.168.4.100/24  把VIP地址手动绑定在主库上
+[root@host51 ]# ifconfig eth0:1        查看手动配置的VIP地址
+			随便找一台机器测试  ping  192.168.4.100
+
+调用脚本去注释
+[root@host56 ~]# vim /etc/mha_manager/app1.cnf
+	master_ip_failover_script=/etc/mha_manager/master_ip_failover
+
+
+启服务
+[root@host56 ~]# masterha_manager  --conf=/etc/mha_manager/app1.cnf  --remove_dead_master_conf        --ignore_last_failover 
+另开终端连接(4.56)代理服务器查看状态							删除挂掉的(server)配置文件	     连续八小时就不切
+[root@host56 mha_manager]# masterha_check_status --conf=/etc/mha_manager/app1.cnf
+		**********app1 (pid:6835) is running(0:PING_OK), master:192.168.4.51*********
+
+测试高可用集群配置
+在数据库服务器上添加访问数据是连接的用户 
+root@host51 ~]# mysql  -uroot -p123456
+mysql> grant  all  on db13.*  to zhangsan@"%"  identified  by  "123456";
+ webuesr  123456
+客户端连接VIP地址访问数据
+[root@host56 ]# mysql   -h192.168.4.100  -uwebuser  -p123456
+
+测试高可用集群
+把主机51上的数据库服务停止
+[root@host51 ~]# systemctl  stop  mysqld 模拟主库停掉.切换VIP切换脚本
+
+客户端连接VIP地址访问数据,此时由于模拟4.51主库数据库服务器挂机,切换VIP4.100到4.52服务器上
+[root@host56 ]# mysql   -h192.168.4.100  -uwebuser  -p123456
+	mysql> select  @@hostname;
+	+------------+
+	| @@hostname |
+	+------------+
+	| host52     |
+	+------------+
+*************************************************
+*把当前52机器器上的数据备份恢复到51上,再加到集群里**
+*************************************************
+把宕机的数据库服务器(51)添加到当前的集群里(52)
+[root@host51 ~]# systemctl start mysqld
+[root@host51 ~]# mysql -uroot   -p123456
+mysql> change master to  master_host="192.168.4.52",
+	-> master_user="repluser",
+	-> master_password="123456",
+	-> master_log_file="  52 show   master status;",
+	-> master_log_pos=  ;
+mysql> show  slave status\G;
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: 192.168.4.52  *****852成为恢复好的51主库******
+                  Master_User: repluser
+                  Master_Port: 3306
+                Connect_Retry: 60
+              Master_Log_File: slave52.000001
+          Read_Master_Log_Pos: 154
+               Relay_Log_File: host51-relay-bin.000002
+                Relay_Log_Pos: 318
+        Relay_Master_Log_File: slave52.000001
+             Slave_IO_Running: Yes                 ***线程YES
+            Slave_SQL_Running: Yes
+
+56：把恢复的主机再次加入到数据库集群里
+]# vim /etc/mha_manager/app1.cnf
+		[server1]
+		candidate_master=1
+		hostname=192.168.4.51
+
+56机器上测试同步状态
+[root@host56 mha_manager]# masterha_check_repl --conf=/etc/mha_manager/app1.cnf
+另开终端连接(4.56)代理服务器,启动MHA服务
+[root@host56 ~]# masterha_manager --conf=/etc/mha_manager/app1.cnf  --remove_dead_master_conf --ignore_last_failover
+然后查询一下状态
+[root@host56 ~]# masterha_check_status --conf=/etc/mha_manager/app1.cnf
+显示is  running    ******app1 (pid:7424) is running(0:PING_OK), master:192.168.4.52**********
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

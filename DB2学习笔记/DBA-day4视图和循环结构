@@ -1,0 +1,543 @@
+"视图：一张虚拟的表
+不能在视图上创建索引
+在视图的FROM子句中不能使用子查询
+以下情形中的视图是不可更新的
+包含以下关键字的SQL语句：聚合函数(SUM、MIN、MAX、COUNT等)、DISTINCT、GROUP BY、HAVING、UNION或UNION ALL
+常量视图
+JOIN
+FROM一个不能更新的视图
+WHERE子句的子查询引用了FROM子句中的表
+使用了临时表，视图是不可更新
+对视图表或基表进行增删改查之间互相影响"
+
+"mysql> create view v1            as select name,shell from user where uid<20; 创建视图表
+mysql> create view ti(名字，解释器) as select name,shell from user where uid<20;  
+创建视图表并重新命名，重命名和查询的列名需相等
+mysql> show table status where comment=""view""\G; 查看当前库下条件是“view”的状态信息
+mysql> show create view v1; 查看创建视图的具体命令
+mysql> drop view v1; 删除视图
+"
+"mysql> create view v2 as  select  a.name as aname , b.name as bname , a.uid as auid , b.uid as  buid from user  left join info  on a.uid=b.uid;
+使用两个表共同建立一个视图，其中不能有重名，进行重命名"
+"创建视图完全格式
+CREATE
+    [OR REPLACE]
+    [ALGORITHM = {UNDEFINED | MERGE | TEMPTABLE}]
+    [DEFINER = { user | CURRENT_USER }]
+    [SQL SECURITY { DEFINER | INVOKER }]
+    VIEW view_name [(column_list)]
+    AS select_statement
+    [WITH [CASCADED | LOCAL] CHECK OPTION]
+"
+"ALGORITHM
+定义处理视图的方式
+ALGORITHM = {UNDEFINED | MERGE | TEMPTABLE}
+MERAGE  （替换方式）
+视图名直接使用视图的公式替换掉，把视图公式合并到了select中。
+TEMPTABLE （具体化方式）
+先得到视图的执行结果，该结果形成一个中间结果暂时存在内存中，之后，外面的select语句就调用了这些中间结果。
+UNDEFINED （未定义）
+ALGORITHM选项的值是UNDEFINED 表示使用的是MERAGE替换方式。"
+
+"WITH CHECK OPTION
+当视图是根据另一个视图定义时,对视图更新/删除/插入
+LOCAL和CASCADED关键字决定了检查的范围。
+LOCAL 仅检查当前视图的限制。
+CASCADED  同时要满足基表的限制。 (默认值) 
+mysql> create view v1  as  select  * from a where  uid < 10 with  check option;
+mysql> create view v2 as select  * from v1 where uid >=5 with local check option; 
+"
+
+数据存放在基表里,视图没有数据
+
+(1)with  check  option CASCADED  同时要满足基表的限制。 (默认值) 
+例子:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+mysql> create table   user2  select name,uid,shell from  user  ;
+mysql> create  view  v1 as select *  from user2  where uid<= 30;^C
+mysql> select * from v1;^C
+mysql> create view v2  as  select  *  from v1 where  uid >=20  with  check  option ;^C
+mysql> select * from v2 ;
+mysql> update v2 set  uid=19  where  name="mysql";
+ERROR 1369 (HY000): CHECK OPTION failed 'db9.v2' 因为创建v2时条件是大于等于20的
+改动例子:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::;
+基表user2的条件是小于等于30 ,v1视图表是v2的基表,当对v2视图表做改动时,v1基表和user2基表都会变
+mysql> update v2 set  uid=29  where  name="mysql";
+mysql> select   * from user2 where name="mysql";
+mysql> select * from v1;
+mysql> select * from v2;
+
+(2)  LOCAL LOCAL 仅检查当前视图的限制,不检查基表的创建条件(with  local  check  option )
+mysql> create view  v3  as   select *  from v1  where  uid>=20  with   local    check  option  ;
+mysql> show   create  view v3 ;查看v3的创建命令
+mysql> select * from v3
+mysql> update  v3  set  uid=10 where name="mysql";  不满足v3自己的创建条件
+ERROR 1369 (HY000): CHECK OPTION failed 'db9.v3
+mysql> update  v3 set  uid=39 where name="mysql"; 成功 ,因为满足自己的创建条件,不用满足基表条件
+但不存在,v1基表也不存在,user2基表会变
+mysql> select  * from v1;     改成功,但不存在
+mysql> select  * from v3;     改成功,但不存在
+mysql> select  * from user2;  改成功,存在,受视图表的改变值而改变值
+
+(3)存储过程概述 , 编写功能替代码时,可以使用变量,可以使用条件判断,可以使用流程控制(if 循环 ) ,算术运算和SQL命令
+
+什么存储过程
+数据库中保存的一系列sql命令的集合
+编写存储过程时，可以使用变量、条件判断、流程控制等
+存储过程，就是MySQL中的脚本
+
+存储过程优点
+存储过程优点
+提高性能
+可减轻网络负担
+可以防止对表的直接访问
+避免重复的sql操作
+
+(4)创建存储过程
+delimiter  //
+create  procedure   名称()
+begin
+        功能代码
+        …..
+        …..
+end
+//     
+delimiter ;
+delimiter关键字声明当前段分隔符
+MySQL默认以“;”为分隔符，没有声明分割符，编译器会把存储过程当成SQL语句进行处理，则存储过程的编译过程会报错。
+例子::::::::::::::;
+mysql> create database  db10;
+mysql> delimiter  //   
+mysql> create procedure say1()
+    -> begin 
+    -> select  * from  db9.user;
+    -> select  * from mysql.user where  user="root";
+    -> end
+      -> //
+Query OK, 0 rows affected (0.05 sec)
+mysql> delimiter  ;  再把分隔符改回来哦
+(5)调用/删除存储过程       存储过程没有参数时，()可以省略有参数时，在调用存储过程时，
+必须传参。
+	调用存储过程
+	Call     存储过程名();
+(6)查看存储过程
+方法1 
+mysql> show  procedure  status;
+方法2
+mysql> select db,name,type from mysql.proc where name=“存储过程名";
+mysql> select  db,name,type  from  mysql.proc where name="say1";
++-----+------+-----------+
+| db  | name | type      |
++-----+------+-----------+
+| db9 | say1 | PROCEDURE |
++-----+------+-----------+
+mysql> select  body  from  mysql.proc where name="say1"\G; 查看存储过程里面的代码都有哪些
+(7)删除存储过程
+	drop procedure  存储过程名；删除存储过程时候不用加括号
+
+例子::::::;用存储过程 建库,建表
+mysql> create  procedure  haha() begin  create  database  kkk; create  table    kkk.ll  (id  int  (2));  end  //
+
+
+
+(8)变量类型
+变量的种类:全局变量\会话变量\用户变量\局部变量
+名称	描述
+会话变量	会话变量和全局变量叫系统变量  使用set命令定义；
+全局变量的修改会影响到整个服务器，但是对会话变量的修改，只会影响到当前的会话。
+全局变量
+用户变量	在客户端连接到数据库服务的整个过程中都是有效的。当当前连接断开后所有用户变量失效。
+定义 set      @变量名=值；
+输出 select  @变量名；
+局部变量	存储过程中的begin/end。其有效范围仅限于该语句块中，语句块执行完毕后，变量失效。
+declare专门用来定义局部变量。
+注意：局部变量  和  参数变量  调用时  变量名前不需要加@ 
+
+
+(9)自定义变量
+mysql> set @x=34839;
+mysql> select  @x;
++-------+
+| @x    |
++-------+
+| 34839 |
++-------+
+(10)局部变量
+例子:::::::::::::::::::::::::::::::::::::::
+mysql>  delimiter
+mysql> create procedure say2()
+ 	begin  
+	declare  x  int  default  77;
+	declare  y  char  (10); 
+	set  	  y="yaya"; 
+	select   x; 
+	select  y;
+	end
+	//
+mysql>  delimiter ; 
+mysql>  call  say2;
+
+(11)变量类型(续1)
+mysql> show global variables;  //查看系统全局变量
+mysql> show session variables;  //查看会话变量
+mysql>  set session sort_buffer_size = 40000; //设置会话变量
+
+mysql> show session variables like “sort_buffer_size”; //查看会话变量
++------------------+-------+
+| Variable_name    | Value |
++------------------+-------+
+| sort_buffer_size | 40000 |
++------------------+-------+
+
+Mysql> show global variables like “%关键字%”; //查看全局变量
+mysql> set @y = 3;   //用户自定义变量，直接赋值
+mysql> select max(uid) into @y from user;   把查询结果赋值给自定义变量   //使用sql命令查询结果赋值
+
+(12)查看系统环境变量
+select  @@系统环境变量
+
+(13)把自定义变量写入到存储过程中
+例子:::::::::;
+mysql> create procedure  p3() begin declare  x  int  default  99; select  x ; select  min(uid) into x from db9.user; select x; end//
+
+(14)算术运算
+符号	描述	例子
++	加法运算	SET  @var1=2+2;      4
+-	减法运算	SET  @var2=3-2;      1
+*	乘法运算	SET  @var3=3*2；   6
+/	除法运算	SET  @var4=10/3;  3.333333333
+DIV	整除运算	SET  @var5=10    DIV   3;   3
+%	取模	SET  @var6=10%3 ;     1
+例子:::::::::::::::::::::::
+mysql> set  @a=5;
+Query OK, 0 rows affected (0.00 sec)
+mysql> set  @b=8;
+Query OK, 0 rows affected (0.00 sec)
+mysql> set  @c=@a*@b;
+Query OK, 0 rows affected (0.00 sec)
+mysql> select @c;
++------+
+| @c   |
++------+
+|   40 |
++------+
+(15)结果使用算术运算写入到存储过程中
+例子::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+mysql> delimiter //
+mysql> create procedure  p4() 
+	begin 
+	declare x  int; 
+	declare y int;
+	declare z int ; 
+	select count(shell)  into x from db9.user  where shell="/bin/bash"; 
+	select count(shell)                                                    
+	set  z=x+y; select  z; 
+	end
+	//
+mysql> delimiter ;
+mysql> call  p4;
+
+
+参数类型指定存储过程参数的格式
+MySQL存储过程，共有三种参数类型IN,OUT,INOUT
+Create procedure  名称(  
+    类型   参数名  数据类型 ，类型   参数名  数据类型 
+   ）
+
+关键字	名称	描述
+in	输入参数	作用是给存储过程传值，必须在调用存储过程时赋值，在存储过程中该参数的值不允许修改；默认类型是in
+out	输出参数	该值可在存储过程内部被改变，并可返回。
+inout	输入/输出参数	调用时指定，并且可被改变和返回
+注意：此三中类型的变量在存储过程中调用时不需要加@符号 ！！！
+mysql> create  procedure p5( in username  char (20))
+    -> begin 
+    -> select  name from db9.user  where name=username;
+    -> end 
+    -> //
+Query OK, 0 rows affected (0.04 sec)
+		out	输出参数	该值可在存储过程内部被改变，并可返回
+mysql> delimiter //
+mysql> create procedure  p6( out  num  int (2))
+       begin
+       select  num;
+       set  num=7;
+       select  num;
+       select  count(name)  into  num  from db9.user  where shell="/bin/bash";
+       select  num;
+       end 
+         //
+mysql> delimiter  ;
+mysql> call  p6(@num);
+        inout	输入/输出参数	调用时指定，并且可被改变和返回
+mysql> create  procedure  p7(inout  num  int (2))
+    -> begin
+    -> select num;
+    -> set  num=99;
+    -> select  num;
+    -> select  count(name)  into  num  from  db9.user where  shell="/bin/bash"; 
+    -> select  num;
+    -> end 
+    -> //
+Query OK, 0 rows affected (0.03 sec)
+mysql> call  p7(@dssd);
++------+
+| num  |
++------+
+| NULL |
++------+
+1 row in set (0.00 sec)
++------+
+| num  |
++------+
+|   99 |
++------+
+1 row in set (0.00 sec)
++------+
+| num  |
++------+
+|    2 |
++------+
+1 row in set (0.00 sec)
+Query OK, 0 rows affected (0.00 sec)
+条件判断
+数值的比较
+类  型	用  途
+=	等于
+>、>=	大于、大于或等于
+<、<=	小于、小于或等于
+!=	不等于
+BETWEEN .. AND ..	在 .. 与 .. 之间
+
+逻辑比较、范围、空、非空、模糊、正则
+类  型	用  途
+OR 、AND 、!	逻辑或、逻辑与、逻辑非
+IN .. 、NOT IN .. 	在 .. 范围内、不在 .. 范围内
+IS NULL	字段的值为空
+IS NOT NULL	字段的值不为空
+LIKE 	模糊匹配
+REGEXP	正则匹配
+
+流程控制
+
+当“条件成立”时执行命令序列
+否则，不执行任何操作
+if  条件测试 then  
+    代码……
+    …..
+end  if ;
+例子::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+mysql> drop procedure if  exists  say;
+mysql> delimiter //
+mysql> create procedure  say(in x int(2)) begin  if  x  <= 10  then select  *  from  user  where  id <=x; end  if  ; end//
+Query OK, 0 rows affected (0.06 sec)
+mysql> delimiter  ;
+mysql> call say(4);
++----+--------+----------+------+------+---------+----------+---------------+
+| id | name   | password | uid  | gid  | comment | homedir  | shell         |
++----+--------+----------+------+------+---------+----------+---------------+
+|  1 | root   | X        | NULL | NULL | NULL    | NULL     | /bin/bash     |
+|  2 | bin    | x        |    1 |    1 | bin     | /bin     | /sbin/nologin |
+|  3 | daemon | x        |    2 |    2 | daemon  | /sbin    | /sbin/nologin |
+|  4 | adm    | x        |    3 |    4 | adm     | /var/adm | /sbin/nologin |
++----+--------+----------+------+------+---------+----------+---------------+
+当“条件成立”时执行代码1
+否则，执行代码2
+if  条件测试 then  
+    代码1 ……
+    …..
+else
+     代码2……
+      …..
+end  if
+end
+例子:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+mysql> delimiter //
+mysql> create  procedure  pp(in  x  int(2))
+    -> begin 
+    -> if x is  null  then  
+    -> select  * from user  where  id=20;
+    -> else 
+    -> select  *  from user  where  id>=x;
+    -> end  if ;
+    -> end 
+    -> //
+Query OK, 0 rows affected (0.04 sec)
+mysql> delimiter  ;
+mysql> call  pp(@q);
++----+----------+----------+------+------+----------------+----------------+---------------+
+| id | name     | password | uid  | gid  | comment        | homedir        | shell         |
++----+----------+----------+------+------+----------------+----------------+---------------+
+| 20 | saslauth | x        |  996 |   76 | Saslauthd user | /run/saslauthd | /sbin/nologin |
++----+----------+----------+------+------+----------------+----------------+---------------+
+mysql> call  pp(5);
+
+循环结构
+条件式循环
+反复测试条件，
+只要成立就执行命令序列
+while  条件判断  do
+      循环体
+       …….
+end   while ;
+
+mysql> delimiter  //
+mysql> create procedure ppp()
+    -> begin
+    -> declare  i int  (2);
+    -> declare  j int (2);
+    -> select  count(id)  into i from db9.user ;
+    -> set  j=1 ;
+    -> while  j <= i do 
+    -> if j % 2 = 0 then 
+    -> select *  from db9.user  where  id = j ;
+    -> end if ;
+    -> set j=j+1;
+    -> end while;
+      ->  select  i ;
+    -> end 
+    -> //
+Query OK, 0 rows affected (0.04 sec)
+mysql> delimiter ;
+循环结构(续1)
+条件式循环
+无循环条件
+loop
+    循环体
+     ……
+end   loop ;
+mysql> create  procedure o()
+    -> begin 
+    -> declare i int (2);
+    -> set  i=1;
+    -> loop
+    -> select i;
+    -> set  i=i+1;
+    -> end  loop;
+    -> if i = 50000 then
+    -> select i;
+    -> end  if ;
+    -> end  
+    -> //
+Query OK, 0 rows affected (0.04 sec)
+mysql> call  o();
+
+
+条件式循环
+until条件判断，成立时结束循环
+repeat
+	循环体
+      until   条件判断   
+end   repeat ;
+条件判断时成立时结束循环
+mysql> delimiter //
+mysql> create procedure  p13()
+    -> begin 
+    -> declare  j  int (2);
+    -> set j=1;
+    -> repeat  
+    -> select  j;
+    -> set j=j+1;
+    -> until  j=10
+    -> end  repeat;
+    -> end 
+    -> //
+Query OK, 0 rows affected (0.04 sec)
+
+mysql> delimiter ;                                                                                        mysql> call  p13();
+死循环
+mysql> create  procedure  oo() begin declare  j  int(2); set  j=1; repeat  select  j; set  j=j+1; until j=1 end  repeat ; end//
+until=2时只输出1
+mysql> create  procedure   p15() begin declare  j  int(2); set  j=1; repeat  select  j; set  j=j+1; until j=2 end  repeat ; end//
+
+控制语句
+循环结构控制语句,控制循环结构的执行。
+LEAVE   标签名  //跳出循环    相当于shell里面的break
+ITERATE 标签名 /放弃本次循环，执行下一次循环  相当于shell里面的coutinue
+
+while循环输出1-----10
+mysql> delimiter  //
+mysql> create procedure p16() begin  declare  i int(2); set i=1; while  i <=10  do  select  i ; set  i=i+1; end  while ; end//
+Query OK, 0 rows affected (0.05 sec)
+mysql> delimiter ;
+mysql> call p16();
+
+
+loop死循环
+mysql> create  procedure  p17() begin  declare  i int(2); set  i=1; loop select  i ; set i=i+1; end  loop; end//
+
+循环控制(给循环其名 循环名之前加冒号:  (loab :)
+while 循环结合ITERETE放弃本次循环,执行下一次循环使用例子,不显示4输出1135678910
+mysql> delimiter  //
+mysql> create  procedure  lll()
+    -> begin 
+    -> declare i int (2);
+    -> set i = 0; 
+    -> loab:while  i < 10  do 
+    -> set i = i +1 ;
+    -> if i =4 then  
+    -> iterate  loab;
+    -> end  if ;
+    -> select  i ;
+    -> end  while ;
+    -> end 
+    -> //
+Query OK, 0 rows affected (0.04 sec)
+
+mysql> delimiter  ;
+mysql> call  lll();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

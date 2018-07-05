@@ -1,0 +1,304 @@
+msyql  主从同步
+mysql   主从同步模式
+  
+mysql   主从同步介绍
+角色分两种
+数据库服务器  做主库 :被客户端存储数据访问的库
+数据库服务  做从slave 库: 同不住库的数据到本机
+msyql  主从同步作用 :实行数据的自动备份
+  
+		例子:::::::::::::::::::::::	配置mysql主从同步结构
+			客户端 192.168.4.254
+准备两台数据库服务器  :master  192.168.4.51 slave  192.168.4.52  
+		
+		注意事项(在配置同步时,如果主库有信息,而从库没有主库的信息,需要做主从配置时,从库必须先要有主库的库和表,主要操作步骤如下::)
+		主库上::mysqldump   -uroot  -p123456  库名  >  /root/库名.sql的文件
+		    	scp   /root/库名.sql的文件     到从库IP:/root下
+		从库上::mysql  -uroot  -p123456  登陆自己的数据库
+			mysql>create  database    库名(和主库一样的库名)
+			mysql> source  /root/库名.sql的文件    恢复(等于同步主库的数据)
+			
+			
+		例子::::::::::::	主库的配置步骤:启用binlog日志,用户授权.查看正在使用的binlog日至信息
+515151
+[root@host51 ~]# vim /etc/my.cnf
+server_id=51
+log-bin
+binlog_format="mixed"
+[root@host51 ~]# systemctl restart mysqld 
+[root@host51 ~]# ls /var/lib/mysql/master51.*
+/var/lib/mysql/master51.000001  /var/lib/mysql/master51.ils ndex
+[root@host51 ~]# mysql  -uroot -p123456
+mysql> show master status;
+mysql> grant    replication  slave on *.*  to  repluser@["%"或(指定从库IP)]  identified  by  "123456";
+mysql> show  master  status;
+
+525252
+从库的配置步骤:验证授权用户,指定server_id 指定主库信息  查看从库状态信息
+[root@host52 ~]# mysql  -h192.168.4.51  -urepluser  -p123456 
+    			mysql> show databases;
+[root@host52 ~]# vim  /etc/my.cnf
+		[mysqld]
+******log_slave_updates (做主从从使必须要在(主从同体)的服务器开启级联复制)
+		server_id=52  server_id 必须要写
+		*log-bin=slave52        可以不写
+		*binlog-format="mixed"  可以不写
+		validate_password_policy=0
+		validate_password_length=6
+		relay_log=(可自定义)指定中继日志文件名
+		replicate_do_db=(指定同步哪个库)(逗号)(指定同步和哪个库)此选项可设置多条（省略时复制所有库）
+		replicate_ignore_db=(指定不复制哪个库)，其他库都同步####ignore-db与do-db只需选用其中一种
+            systemctl  restart  mysqld 
+[root@host52 ~]# systemctl restart mysqld
+[root@host52 ~]# mysql  -uroot -p123456 
+mysql> show  slave  status;
+登陆51机器查找出日志文件名和POS号
+[root@host51 ~]# mysql  -uroot -p123456
+mysql> show  master  status;
+
+[root@host52 ~]# mysql  -uroot -p123456
+	mysql>change  master  to  master_host="192.168.4.51",主库IP 
+	master_user="repluser",主库授权的用户
+	master_password="123456",主库授权的用户的密码
+	master_log_file="master51.000001",主库日志文件名
+	master_log_pos=441;主库偏移量
+[root@host52 ~]# mysql  -uroot -p123456
+	mysql> show  slave  status\G;
+			Slave_IO_Running: No
+			Slave_SQL_Running: No
+	mysql> start  slave;
+	mysql> show  slave  status\G;
+			Slave_IO_Running: Yes
+			Slave_SQL_Running: Yes
+如果上面两项不是yes执行以下操作:
+[root@host52 mysql]# cd /var/lib/mysql/
+	ls   
+	rm  -rf 以下四种
+	rm  -rf  master.info
+	rm  -rf  relay-log.info
+	rm  -rf   host52-relay-bin.000002
+	rm  -rf  host52-relay-bin.index
+	再systemctl  restart  msyqld
+在重新在52授权
+[root@host52 ~]# mysql  -uroot -p123456
+	mysql>change  master  to  master_host="192.168.4.51",主库IP 
+	master_user="repluser",主库授权的用户
+	master_password="123456",主库授权的用户的密码
+	master_log_file="master51.000001",主库日志文件名
+	master_log_pos=441;主库偏移量
+查看当前服务器正在工作的程序列表(show  processlist;)
+[root@host51 ~]# mysql  -uroot -p123456
+	           mysql> show  processlist;
++----+----------+--------------------+------+-------------+------+---------------------------------------------------------------+-------------------+
+| Id | User     | Host               | db   | Command     | Time | State                                                         | Info              |
++----+----------+--------------------+------+-------------+------+---------------------------------------------------------------+-------------------+
+|  4 | root     | localhost          | NULL | Query       |    0 | starting                                                      | show  processlist |
+|  9 | repluser | 192.168.4.52:55134 | NULL |((( Binlog Dump))) | 1398 | Master has sent all binlog to slave; waiting for more updates | NULL              |
++----+----------+--------------------+------+-------------+------+---------------------------------------------------------------+-------------------+
+因为有IO线程有binlog  dump  才会有同步
+
+
+验证:
+客户端验证主从同步配置,登陆主库创建数据库,到从库查看是否和主库同步
+51上操作  在主库添加访问数据时,连接的用户
+[root@host51 ~]# mysql  -uroot -p123456
+mysql> grant  all  on  bbsdb.* to  jim@"%" identified  by  "123456";(生产环境中之可以给JIM用户select和insert权限)
+在开终端用主库授权的用户JIM 连接到(51)主库服务器.
+mysql    -h192.168.4.51  -ujim  -p123456 (用51授权用户登陆到主服务器)
+mysql>  create  databases  hah库;(创建一个测试用的库)
+再到52从库服务器IP52查看是否有客户端创建的测试的haha库
+
+	扩展知识开始:::
+	
+	让当前从库(临时)不同步主库的数据
+		mysql> stop   slave;
+
+	让当前从库(永久)不同步主库的数据
+		rm  -rf 以下四种
+		rm  -rf  master.info
+		rm  -rf  relay-log.info
+		rm  -rf   host52-relay-bin.000002
+		rm  -rf  host52-relay-bin.index
+		再systemctl  restart  msyqld
+在52从库上修改主库的信息
+mysql> stop   slave;
+msyql>  change    master  to    master_(任何配置错误的一项)="值
+,选项="值";
+mysql>  start  slave ;
+
+主---->从---->从 配置时常用的参数:指定从库同步那些库文件
+
+11111.修改从库的/etc/my.cnf指定从库同步哪些主库文件
+        (从库)级联复制log_slave_updates
+	relay_log=(dbsvr2-relay-bin可自定义)指定中继日志文件名
+	replicate_do_db=mysql	仅复制指定库，其他库将被忽略，此选项可设置多条（省略时复制所有库）
+	replicate_ignore_db=test	不复制哪些库，其他库将被忽略，ignore-db与do-db只需选用其中一种
+
+22222.修改主库的/etc/my.cnf来指定让从库同步那些库文件 
+		binlog_do_db=库名,库名        指定只允许从库同步的库
+		binlog_ignore_db=库名,库名   指定不允许从库同步的库
+
+做主(51)-->从(50)-->从(52)的时候::
+因为第二台(52)从库的SQL线程执行本机中继日志文件里的SQL命令,第一台(50)从库的binlog日志并不会记录在第二台(52)从库的binlog日志文件里,就无法执行SQL命令来同步主库(51)和第一台(50)从库的数据.
+log_slave_updates
+
+主从同步模式:
+主从同步结构模式	
+单向复制：一主一从  	 主 --> 从  :  缺点:单点故障
+扩展应用
+链式复制：主 --> 从 --> 从
+双向复制：主 <--> 从
+放射式复制:一主多从   从 <-- 主 --> 从
+                               |
+                              从
+主从同步复制模式:
+异步复制（Asynchronous replication）
+	主库在执行完客户端提交的事务后会立即将结果返给客户端，并不关心从库是否已经接收并处理。
+全同步复制（Fully synchronous replication）
+	当主库执行完一个事务，所有的从库都执行了该事务才返回给客户端。
+半同步复制（Semisynchronous replication）
+	介于异步复制和全同步复制之间，主库在执行完客户端提交的事务后不是立刻返回给客户端，而是等待至少一个从库接收到并写到relay log中才返回给客户端
+
+启用主库的半同步复制模式     启用从库的半同步复制模式
+	查看是否允许动态加载模块:(**(主从都要查看)**
+		show variables like  "have_dynamic_loading";
+	主库上面安装插件:master
+    	 	mysql> INSTALL PLUGIN rpl_semi_sync_master SONAME 'semisync_master.so';
+	从库上面安装插件:
+   	 	mysql> INSTALL PLUGIN rpl_semi_sync_slave SONAME  'semisync_slave.so';
+	查看已安装的插件:
+		 (主从都要做)mysql> SELECT  PLUGIN_NAME, PLUGIN_STATUS FROM INFORMATION_SCHEMA.PLUGINS  WHERE PLUGIN_NAME LIKE '%semi%';
+启用主库的半同步复制模式     
+msyql>  msyql  -uroot   -p123456
+查看本机的半同步服务
+	show  variables  like  "rpl_semi_sync_%_enabled";
+主库：mysql> SET GLOBAL rpl_semi_sync_master_enabled = 1;
+写在主配置文件/etc/my.cnf 的[mysqld]下方 
+		主库配置文件写入：
+		plugin-load=rpl_semi_sync_master=semisync_master.so
+		rpl_semi_sync_master_enabled=1
+
+启用从库的半同步复制模式
+	查看本机的半同步服务
+		show  variables  like  "rpl_semi_sync_%_enabled";
+从库：mysql> SET GLOBAL rpl_semi_sync_slave_enabled = 1;
+     mysql> SET GLOBAL rpl_semi_sync_master_enabled = 1;
+从库(即是主库也是从库主配置文件必须要写下面两条)：
+	写在主配置文件/etc/my.cnf 的[mysqld]下方
+		plugin-load=rpl_semi_sync_master=semisync_master.so
+		rpl_semi_sync_master_enabled=1
+		plugin-load=rpl_semi_sync_slave=semisync_slave.so
+		rpl_semi_sync_slave_enabled=1
+		
+		扩展知识结束::::::::::
+ 
+
+
+	                                      2       做主(51)-->从(50)-->从(52)的时候::
+				注意事项:::
+			因为第二台(52)从库的SQL线程执行本机中继日志文件里的SQL命令,第一台(50)从库的binlog日志并不会记录在第二台(52)从库的binlog日志文件里,就无法执行SQL命令来同步主库(51)和第一台(50)从库的数据.
+  当有一台服务器即是主库也是从库是主配置文件一定要写入::log_slave_updates  开启级联复制模式
+
+		      例子::::::::	 配置主从从同步服务步骤:master:   192.168.4.51(主)
+								slave1(master):   192.168.4.52(53的主和51的从)
+									  slave2:   192.168.4.53(52的从库)
+主库的配置步骤:启用binlog日志,用户授权.查看正在使用的binlog日至信息
+515151
+[root@host51 ~]# vim /etc/my.cnf
+			erver_id=51   server_id 必须要写
+         		log-bin=slave51       可以不写
+			binlog-format="mixed"  可以不写
+			validate_password_policy=0  密码策略
+			validate_password_length=6  密码长度
+			plugin-load=rpl_semi_sync_master=semisync_master.so 动态加载模块
+			rpl_semi_sync_master_enabled=1	   启用半同步复制模式
+			replicate_do_db=(指定同步哪个库)(逗号)(指定同步和哪个库)此选项可设置多条（省略时复制所有库）
+			replicate_ignore_db=(指定不复制哪个库)，其他库都同步####ignore-db与do-db只需选用其中一种
+[root@host51 ~]# systemctl restart mysqld 
+[root@host51 ~]# ls /var/lib/mysql/master51.*
+/var/lib/mysql/master51.000001  /var/lib/mysql/master51.ils ndex
+[root@host51 ~]# mysql  -uroot -p123456
+mysql> show master status;
+mysql> grant    replication  slave on *.*  to  repluser@["%"或(指定从库IP)]  identified  by  "123456";添加一个可以连接主库的用户
+mysql> show  master  status;
+
+52525252(53的主和51的从)
+从库的配置步骤:验证授权用户,指定server_id 指定主库信息  查看从库状态信息
+[root@host52 ~]# mysql  -h192.168.4.51  -urepluser  -p123456 
+    			mysql> show databases;
+[root@host52 ~]# vim  /etc/my.cnf
+		[mysqld]
+******      log_slave_updates (做主从从使必须要在(主从同体)的服务器开启级联复制)
+		server_id=52  server_id 必须要写
+		log-bin=slave52        可以不写
+		binlog-format="mixed"  可以不写
+		validate_password_policy=0   密码策略
+		validate_password_length=6   密码长度
+		plugin-load=rpl_semi_sync_master=semisync_master.so 	master动态加载模块
+		rpl_semi_sync_master_enabled=1           		 	开启master半复制模式
+		plugin-load=rpl_semi_sync_slave=semisync_slave.so	 	slave动态加载模块
+		rpl_semi_sync_slave_enabled=1				  	开启slave半复制模式
+		relay_log=(可自定义)						指定中继日志文件名
+		replicate_do_db=(指定同步哪个库)(逗号)(指定同步和哪个库)	此选项可设置多条（省略时复制所有库）
+		replicate_ignore_db=(指定不复制哪个库)，	其他库都同步####ignore-db与do-db只需选用其中一种          
+[root@host52 ~]# systemctl restart mysqld
+[root@host52 ~]# mysql  -uroot -p123456 
+mysql> show  slave  status;
+登陆51机器查找出日志文件名和POS号
+[root@host51 ~]# mysql  -uroot -p123456
+		mysql>  show  master  status;
+
+[root@host52 ~]# mysql  -uroot -p123456
+	mysql>change  master  to  master_host="192.168.4.51",主库IP 
+	master_user="repluser",		主库授权的用户
+	master_password="123456",	主库授权的用户的密码
+	master_log_file="master51.000001",主库日志文件名
+	master_log_pos=441;		主库偏移量
+[root@host52 ~]# mysql  -uroot -p123456
+	mysql> show  slave  status\G;
+			Slave_IO_Running: No
+			Slave_SQL_Running: No
+	mysql> start  slave;
+	mysql> show  slave  status\G;
+			Slave_IO_Running: Yes
+			Slave_SQL_Running: Yes
+535353(52的从库)
+从库的配置步骤:验证授权用户,指定server_id 指定主库信息  查看从库状态信息
+[root@host53 ~]# mysql  -h192.168.4.51  -urepluser  -p123456 
+    			mysql> show databases;
+[root@host53 ~]# vim  /etc/my.cnf
+		[mysqld]
+		server_id=53 server_id 		必须要写
+		log-bin=slave53       		可以不写
+		binlog-format="mixed"  		可以不写
+		validate_password_policy=0  	密码策略	
+		validate_password_length=6  	密码长度
+		relay_log=(可自定义)		指定中继日志文件名
+		replicate_do_db=(指定同步哪个库)(逗号)(指定同步和哪个库)此选项可设置多条（省略时复制所有库）
+		replicate_ignore_db=(指定不复制哪个库)，其他库都同步####ignore-db与do-db只需选用其中一种
+            systemctl  restart  mysqld 
+[root@host53 ~]# systemctl restart mysqld
+
+登陆52机器查找出日志文件名和POS号
+[root@host52 ~]# mysql  -uroot -p123456
+mysql> mysql> show  master  status\G;找出binlog日志的文件名和偏量值
+
+[root@host53 ~]# mysql  -uroot -p123456
+	mysql>change  master  to  master_host="192.168.4.51",主库IP 
+	master_user="repluser",主库授权的用户
+	master_password="123456",主库授权的用户的密码
+	master_log_file="master52.000001",主库日志文件名
+	master_log_pos=441;主库偏移量
+[root@host53 ~]# mysql  -uroot -p123456
+	mysql> show  slave  status\G;
+			Slave_IO_Running: No
+			Slave_SQL_Running: No
+	mysql> start  slave;
+	mysql> show  slave  status\G;
+			Slave_IO_Running: Yes
+			Slave_SQL_Running: Yes
+测试:用授权用户登陆主库服务器,create   database  haha;
+			再去其他两个从库查看是否同步有数据库haha存在!!!!!
+
+
+

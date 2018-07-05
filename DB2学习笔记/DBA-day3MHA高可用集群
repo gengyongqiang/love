@@ -1,0 +1,237 @@
+部署MYSQL 高可用集群 (MHA+主从同步)
+ 高可用集群 主备模式  当主角色的主机宕机后,备用主机自动接替主角色的主机提供服务给客户端
+集群:::::  使用多台服务器提供相同的服务
+
+
+准备MHA运行环境(要求必须有两台备用主库)
+一主多从
+按装依赖的软件包
+ssh  root用户无密码登陆
+
+51----53都要有repluser用户
+[root@host51~]# mysql -uroot -p123456
+mysql> grant  replication slave  on  *.*  to repluser@"%"  identified by "123456";
+
+51----53都要set
+[root@host51~]# mysql -uroot -p123456
+mysql> set global relay_log_purge=off;
+
+二.配置MHA 
+(1)配置数据主机(一主多从,安装依赖的软件包,ssh  root无密码登陆)配置管理主机()
+root@host56 ~]# cd soft/mysql/mha-soft-stude
+[root@host56 ~]# yum -y  install  perl-*.rpm
+每台机器都要有
+mysql> grant  all  on   *.* to  zhangsan@"%"  identified  by  "123456";
+每台机器都要查看用户是否存在
+mysql> select   user,host  from  mysql.user;
+在56机器上测试授权用户是否每台设备都能连接服务(**配置管理主机要用此用户**)
+[root@host56 ~]# mysql  -h192.168.4.51--55  -uzhangsan  -p123456
+(2)(((51-----55都要装))))安装软件包MHA  node
+[root@host51 ~]# cd soft/mysql/mha-soft-student/
+安装依赖包perl-DBD-mysql
+[root@host51 mha-soft-student]# yum  -y  install   perl-DBD-mysql			
+[root@host51 mha-soft-student]# rpm  -ivh  mha4mysql-node-0.56-0.el6.noarch.rpm  
+[root@host55 mha-soft-student]# rpm  -ivh  mha4mysql-node-0.56-0.el6.noarch.rpm  
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+(3)配置管理主机(192.168.4.56)
+装包
+[root@host56 mha-soft-student]# yum  -y  install   perl-DBD-mysql
+[root@host56 mha-soft-student]# rpm  -ivh  mha4mysql-node-0.56-0.el6.noarch.rpm
+[root@host56 mha-soft-student]# yum  -y  install  perl-ExtUtils-*   perl-CPAN-*
+[root@host56 mha-soft-student]# tar  -zxf  mha4mysql-manager-0.56.tar.gz
+ls ls ls ls ls ls ls ls ls  
+[root@host56 mha-soft-student]# cd mha4mysql-manager-0.56/
+ls ls ls ls ls ls ls ls ls 
+[root@host56 mha4mysql-manager-0.56]# perl  Makefile.PL
+[root@host56 mha4mysql-manager-0.56]# make
+[root@host56 mha4mysql-manager-0.56]# make install
+修改(56)配置文件
+随便创建一个目录,用来指定工作目录
+[root@host56 mha4mysql-manager-0.56]# mkdir  /etc/mha_manager/
+[root@host56 ~]# cd soft/mysql/mha-soft-student/mha4mysql-manager-0.56/samples/conf/
+[root@host56 conf]# cp  app1.cnf  /etc/mha_manager/ 指定工作目录
+[root@host56 conf]# vim  /etc/mha_manager/app1.cnf 
+
+  1 [server default]
+  2 manager_workdir=/var/log/masterha/app1   //指定工作目录  manager_workdir=/etc/mha_manager
+  3 manager_log=/var/log/masterha/app1/manager.log  日志   manager_log=/etc/mha_manager/manager.log
+
+
+ 写	ssh_user=root
+ 写 	ssh_port=22
+ 写	repl_user=repluser
+ 写	repl_password=123456
+ 写	user=zhangsan
+ 写	password=123456
+[root@host56 ~]# cd soft/mysql/mha-soft-student/mha4mysql-manager-0.56/samples/scripts/
+[root@host56 scripts]# cp master_ip_failover  /etc/mha_manager/  拷贝脚本到指定工作路径
+写      master_ip_failover_script=/etc/mha_manager/master_ip_failover    指定脚本名路径   
+ 编改脚本cp到指定工作路径下的脚本给覆盖掉
+[root@host56 ~]# cp soft/mysql/mha-soft-student/
+[root@host56 mha_manager]# vim master_ip_failover
+ 35 my $vip = '192.168.4.100/24';  # Virtual IP   改为4.100
+ 36 my $key = "1";
+ 37 my $ssh_start_vip = "/sbin/ifconfig eth0:$key $vip";
+ 38 my $ssh_stop_vip = "/sbin/ifconfig eth0:$key down";
+[root@host56 ~]# cp soft/mysql/mha-soft-student/master_ip_failover  /etc/mha_manager/master_ip_failover    编改脚本cp到指定工作路径下的脚本给覆盖掉
+
+
+5 [server1]
+  6 hostname=host1     改   hostname=192.168.4.51
+  7 candidate_master=1  竞选主库
+  8 
+  9 [server2]
+ 10 hostname=host2     改    hostname=192.168.4.52
+ 11 candidate_master=1
+ 12 
+ 13 [server3]
+ 14 hostname=host3      改    hostname=192.168.4.53
+ 15 candidate_master=1
+
+
+ 16 [server4]
+ 17 hostname=host4
+ 18 no_master=1   不竞选主库
+
+3yy  p 添加 
+[server5]
+ 34 hostname=192.168.4.55  
+ 35 no_master=1
+
+测试配置文件
+[root@host56 ~]# vim /etc/mha_manager/app1.cnf
+注释
+#master_ip_failover_script=/etc/mha_manager/master_ip_failover
+*******************************************************************************
+*测试                                                                                     *
+*[root@host56 ~]# masterha_check_ssh  --conf=/etc/mha_manager/app1.cnf*  
+*      最后显示*****All SSH connection tests passed successfully.全部OK   *
+*******************************************************************************
+测试主从同步
+[root@host56 ~]# masterha_check_repl   --conf=/etc/mha_manager/app1.cnf
+**显示主库从库 ******************************************
+192.168.4.51(192.168.4.51:3306) (current master) * 
+* 	+--192.168.4.52(192.168.4.52:3306)                   *  
+*	+--192.168.4.53(192.168.4.53:3306)                  *
+*	+--192.168.4.54(192.168.4.54:3306)                   *
+*	+--192.168.4.55(192.168.4.55:3306)                   *  
+*	MySQL Replication Health is OK.****        *
+*********************************************************
+
+启动服务
+手动部署主库eth:1的VIP地址(配置文件中的192.168.4.100)
+[root@host51 ]# ifconfig eth0:1 192.168.4.100/24  把VIP地址手动绑定在主库上
+[root@host51 ]# ifconfig eth0:1        查看手动配置的VIP地址
+			随便找一台机器测试  ping  192.168.4.100
+调用脚本去注释
+[root@host56 ~]# vim /etc/mha_manager/app1.cnf
+	master_ip_failover_script=/etc/mha_manager/master_ip_failover
+启服务
+[root@host56 ~]# masterha_manager  --conf=/etc/mha_manager/app1.cnf  --remove_dead_master_conf --ignore_last_failover 
+查看状态
+[root@host56 mha_manager]# masterha_check_status --conf=/etc/mha_manager/app1.cnf
+
+
+测试高可用集群配置
+在数据库服务器上添加访问数据是连接的用户 
+root@host51 ~]# mysql  -uroot -p123456
+mysql> grant  all  on db13.*  to webuser@"%"  identified  by  "123456";
+ webuesr  123456
+客户端连接VIP地址访问数据
+[root@host56 mha_manager]# mysql   -h192.168.4.100  -uwebuser  -p123456
+
+测试高可用集群
+把主机51上的数据库服务停止
+[root@host51 ~]# systemctl  stop  mysqld 模拟主库停掉.切换VIP切换脚本
+
+把宕机的数据库服务器(51)添加到当前的集群里(52)
+[root@host51 ~]# systemctl start mysqld 
+change master to  master-host="192.168.4.52",
+	master_user="repluser",
+	master_password="123456",
+	master_log_file="  52 show   master status;",
+	master_log_pos=  ;
+mysql>  start slave ;
+
+ 
+
+56：把恢复的主机再次加入到数据库集群里
+]# vim /etc/mha_manager/app1.cnf
+[server1]
+candidate_master=1
+hostname=192.168.4.51
+
+56机器上测试同步状态
+可以[root@host56 mha_manager]# masterha_check_repl --conf=/etc/mha_manager/app1.cnf
+也可以[root@host56 mha_manager]# masterha_manager  --conf=/etc/mha_manager/app1.cnf  --remove_dead_master_conf --ignore_last_failover
+[root@host56 mha_manager]# masterha_check_status --conf=/etc/mha_manager/app1.cnf
+
+
+
+
+
+
+
+指定命令所在的路径
+[root@host56 ~]# cd soft/mysql/mha-soft-student/mha4mysql-manager-0.56/
+[root@host56 mha4mysql-manager-0.56]# echo  $PATH
+/usr/local/mysql/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/root/bin
+[root@host56 mha4mysql-manager-0.56]# ls /root/bin
+		ls: 无法访问/root/bin: 没有那个文件或目录
+[root@host56 mha4mysql-manager-0.56]# mkdir /root/bin
+[root@host56 mha4mysql-manager-0.56]# cp  bin/*  /root/bin/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+修改配置文件
+测试配置文件
+启动服务
+测试高可用集群
